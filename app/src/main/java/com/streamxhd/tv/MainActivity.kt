@@ -157,17 +157,36 @@ class MainActivity : AppCompatActivity() {
             e.stopPropagation();
             var url = btn.getAttribute('data-url');
             if (url && url.trim()) {
-                Android.playUrl(url.trim());
+                url = url.trim().replace(/live1\.php/gi, 'live2.php');
+                Android.playUrl(url);
             }
         }
     }, true);
-    document.querySelectorAll('[data-action="play"]').forEach(function(btn) {
-        btn.setAttribute('tabindex', '0');
+    var refreshBtn = document.createElement('div');
+    refreshBtn.id = '__refresh_btn';
+    refreshBtn.textContent = '\u21BB';
+    refreshBtn.style.cssText = 'position:fixed;top:8px;right:8px;z-index:9999;background:#CC000000;color:white;font-size:22px;padding:12px 16px;border-radius:4px;cursor:pointer;min-width:48px;min-height:48px;display:flex;align-items:center;justify-content:center;';
+    refreshBtn.setAttribute('tabindex', '0');
+    refreshBtn.addEventListener('click', function() { window.location.reload(); });
+    refreshBtn.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') { window.location.reload(); }
     });
+    document.body.appendChild(refreshBtn);
+    function focusFirstTab() {
+        var firstTab = document.querySelector('.tab');
+        if (firstTab) { firstTab.focus(); }
+    }
+    document.querySelectorAll('[data-action="play"], .tab').forEach(function(el) {
+        el.setAttribute('tabindex', '0');
+    });
+    focusFirstTab();
     new MutationObserver(function() {
-        document.querySelectorAll('[data-action="play"]:not([tabindex])').forEach(function(btn) {
-            btn.setAttribute('tabindex', '0');
+        document.querySelectorAll('[data-action="play"]:not([tabindex]), .tab:not([tabindex])').forEach(function(el) {
+            el.setAttribute('tabindex', '0');
         });
+        if (!document.getElementById('__refresh_btn')) {
+            document.body.appendChild(refreshBtn);
+        }
     }).observe(document.body, { childList: true, subtree: true });
 })();
 """
