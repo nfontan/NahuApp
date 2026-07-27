@@ -140,6 +140,8 @@ var playAttempts = 0;
 function tryPlay() {
     try {
         var doc = frame.contentDocument || frame.contentWindow.document;
+        var btn = doc.getElementById('soundUnlock');
+        if (btn) btn.style.display = 'none';
         var v = doc.querySelector('video');
         if (v) {
             v.muted = false;
