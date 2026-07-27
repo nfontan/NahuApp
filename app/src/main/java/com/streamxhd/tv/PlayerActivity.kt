@@ -3,7 +3,6 @@ package com.streamxhd.tv
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -18,9 +17,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.util.Log
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import java.net.URLEncoder
 
 class PlayerActivity : AppCompatActivity() {
 
@@ -30,7 +27,6 @@ class PlayerActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var videoFocused = false
-    private var versionLabel: TextView? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,26 +40,6 @@ class PlayerActivity : AppCompatActivity() {
 
         progressBar = findViewById(R.id.playerProgressBar)
         webView = findViewById(R.id.playerWebView)
-
-        val pkgInfo = packageManager.getPackageInfo(packageName, 0)
-        val ver = pkgInfo.versionName ?: "?"
-
-        versionLabel = TextView(this).apply {
-            text = "v$ver"
-            setTextColor(Color.YELLOW)
-            setBackgroundColor(Color.parseColor("#99000000"))
-            textSize = 14f
-            setPadding(8, 4, 8, 4)
-        }
-        val params = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = android.view.Gravity.TOP or android.view.Gravity.END
-            marginEnd = 16
-            topMargin = 16
-        }
-        (findViewById<FrameLayout>(android.R.id.content)).addView(versionLabel, params)
 
         fullscreenContainer = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -95,7 +71,6 @@ class PlayerActivity : AppCompatActivity() {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     progressBar.visibility = View.GONE
-                    versionLabel?.text = "v$ver"
                     view?.evaluateJavascript(AUTO_SETUP_VIDEO_JS, null)
                 }
 
@@ -142,7 +117,6 @@ class PlayerActivity : AppCompatActivity() {
 
             requestFocus(View.FOCUS_DOWN)
 
-            val encodedUrl = URLEncoder.encode(url, "UTF-8")
             val wrapperHtml = """
 <!DOCTYPE html>
 <html>
@@ -153,9 +127,6 @@ class PlayerActivity : AppCompatActivity() {
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
     iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
 </style>
-<script>
-document.title = 'NahuApp v$ver';
-</script>
 </head>
 <body>
 <iframe id="playerFrame"
@@ -165,9 +136,24 @@ document.title = 'NahuApp v$ver';
 </iframe>
 <script>
 var frame = document.getElementById('playerFrame');
-frame.addEventListener('load', function() {
-    document.title = 'NahuApp v$ver | loaded';
-});
+var playAttempts = 0;
+function tryPlay() {
+    try {
+        var doc = frame.contentDocument || frame.contentWindow.document;
+        var v = doc.querySelector('video');
+        if (v) {
+            v.muted = false;
+            v.volume = 1.0;
+            v.play().then(function() {
+                if (v.requestFullscreen) v.requestFullscreen();
+                else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
+            }).catch(function() {});
+        }
+    } catch(e) {}
+    playAttempts++;
+    if (playAttempts < 20) setTimeout(tryPlay, 1000);
+}
+frame.addEventListener('load', function() { setTimeout(tryPlay, 500); });
 </script>
 </body>
 </html>
