@@ -139,17 +139,17 @@ var frame = document.getElementById('playerFrame');
 var playAttempts = 0;
 function tryPlay() {
     try {
-        var doc = frame.contentDocument || frame.contentWindow.document;
-        var btn = doc.getElementById('soundUnlock');
-        if (btn) btn.style.display = 'none';
+        var win = frame.contentWindow || frame.contentDocument.defaultView;
+        if (typeof win.unlockSound === 'function') {
+            win.unlockSound();
+            return;
+        }
+        var doc = frame.contentDocument || win.document;
         var v = doc.querySelector('video');
         if (v) {
             v.muted = false;
             v.volume = 1.0;
-            v.play().then(function() {
-                if (v.requestFullscreen) v.requestFullscreen();
-                else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
-            }).catch(function() {});
+            v.play().catch(function() {});
         }
     } catch(e) {}
     playAttempts++;
