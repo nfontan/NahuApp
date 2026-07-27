@@ -11,11 +11,15 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
+import java.io.ByteArrayInputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 class PlayerActivity : AppCompatActivity() {
 
@@ -63,9 +67,38 @@ class PlayerActivity : AppCompatActivity() {
             }
 
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest
+                ): WebResourceResponse? {
+                    if (!request.isForMainFrame) return null
+                    try {
+                        val conn = URL(request.url.toString()).openConnection() as HttpURLConnection
+                        conn.setRequestProperty("Referer", "https://stream-xhd.com/")
+                        conn.setRequestProperty("User-Agent", view.settings.userAgentString)
+                        conn.connect()
+                        val ct = conn.contentType ?: "text/html"
+                        if (ct.contains("html")) {
+                            val html = conn.inputStream.bufferedReader().use { it.readText() }
+                            val patched = html.replace("<head>", "<head>$IFRAME_DEFEAT_INNER")
+                            return WebResourceResponse(
+                                "text/html",
+                                conn.contentEncoding ?: "UTF-8",
+                                ByteArrayInputStream(patched.toByteArray(Charsets.UTF_8))
+                            )
+                        }
+                        return WebResourceResponse(
+                            ct.split(";")[0].trim(),
+                            conn.contentEncoding ?: "UTF-8",
+                            conn.inputStream
+                        )
+                    } catch (_: Exception) {
+                        return null
+                    }
+                }
+
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     progressBar.visibility = View.VISIBLE
-                    view?.evaluateJavascript(IFRAME_DEFEAT_JS, null)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -114,7 +147,7 @@ class PlayerActivity : AppCompatActivity() {
             addJavascriptInterface(VideoBridge(), "Android")
 
             requestFocus(View.FOCUS_DOWN)
-            loadUrl(url, mapOf("Referer" to "https://stream-xhd.com/"))
+            loadUrl(url)
         }
     }
 
@@ -186,14 +219,26 @@ class PlayerActivity : AppCompatActivity() {
             return Intent(packageContext, PlayerActivity::class.java).putExtra("url", url)
         }
 
-        private const val IFRAME_DEFEAT_JS = """
+        private const val IFRAME_DEFEAT_INNER = """<script>
 (function() {
-    try {
-        Object.defineProperty(window, 'top', { get: function() { return window; } });
-        Object.defineProperty(window, 'parent', { get: function() { return window; } });
-        Object.defineProperty(window, 'frameElement', { get: function() { return null; } });
-    } catch(e) {}
+    Object.defineProperty(window, 'top', {
+        get: function() {
+            var fake = Object.create(window);
+            Object.defineProperty(fake, 'location', { get: function() { return window.location; } });
+            return fake;
+        },
+        configurable: true
+    });
+    Object.defineProperty(window, 'parent', {
+        get: function() { return window; },
+        configurable: true
+    });
+    Object.defineProperty(window, 'frameElement', {
+        get: function() { return document.createElement('iframe'); },
+        configurable: true
+    });
 })();
+</script>
 """
         private const val AUTO_SETUP_VIDEO_JS = """
 (function() {
