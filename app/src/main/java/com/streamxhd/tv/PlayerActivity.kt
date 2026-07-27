@@ -3,6 +3,7 @@ package com.streamxhd.tv
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -11,15 +12,15 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
+import android.util.Log
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import java.io.ByteArrayInputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URLEncoder
 
 class PlayerActivity : AppCompatActivity() {
 
@@ -29,6 +30,7 @@ class PlayerActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var videoFocused = false
+    private var versionLabel: TextView? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +44,26 @@ class PlayerActivity : AppCompatActivity() {
 
         progressBar = findViewById(R.id.playerProgressBar)
         webView = findViewById(R.id.playerWebView)
+
+        val pkgInfo = packageManager.getPackageInfo(packageName, 0)
+        val ver = pkgInfo.versionName ?: "?"
+
+        versionLabel = TextView(this).apply {
+            text = "v$ver"
+            setTextColor(Color.YELLOW)
+            setBackgroundColor(Color.parseColor("#99000000"))
+            textSize = 14f
+            setPadding(8, 4, 8, 4)
+        }
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.END
+            marginEnd = 16
+            topMargin = 16
+        }
+        (findViewById<FrameLayout>(android.R.id.content)).addView(versionLabel, params)
 
         fullscreenContainer = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -61,48 +83,19 @@ class PlayerActivity : AppCompatActivity() {
                 useWideViewPort = true
                 allowFileAccess = false
                 allowContentAccess = false
-                mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 mediaPlaybackRequiresUserGesture = false
                 userAgentString = "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Safari/537.36"
             }
 
             webViewClient = object : WebViewClient() {
-                override fun shouldInterceptRequest(
-                    view: WebView,
-                    request: WebResourceRequest
-                ): WebResourceResponse? {
-                    if (!request.isForMainFrame) return null
-                    try {
-                        val conn = URL(request.url.toString()).openConnection() as HttpURLConnection
-                        conn.setRequestProperty("Referer", "https://stream-xhd.com/")
-                        conn.setRequestProperty("User-Agent", view.settings.userAgentString)
-                        conn.connect()
-                        val ct = conn.contentType ?: "text/html"
-                        if (ct.contains("html")) {
-                            val html = conn.inputStream.bufferedReader().use { it.readText() }
-                            val patched = html.replace("<head>", "<head>$IFRAME_DEFEAT_INNER")
-                            return WebResourceResponse(
-                                "text/html",
-                                conn.contentEncoding ?: "UTF-8",
-                                ByteArrayInputStream(patched.toByteArray(Charsets.UTF_8))
-                            )
-                        }
-                        return WebResourceResponse(
-                            ct.split(";")[0].trim(),
-                            conn.contentEncoding ?: "UTF-8",
-                            conn.inputStream
-                        )
-                    } catch (_: Exception) {
-                        return null
-                    }
-                }
-
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     progressBar.visibility = View.VISIBLE
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     progressBar.visibility = View.GONE
+                    versionLabel?.text = "v$ver"
                     view?.evaluateJavascript(AUTO_SETUP_VIDEO_JS, null)
                 }
 
@@ -111,6 +104,7 @@ class PlayerActivity : AppCompatActivity() {
                     request: WebResourceRequest?,
                     error: WebResourceError?
                 ) {
+                    Log.e("PlayerActivity", "Error: ${error?.description} for ${request?.url}")
                     progressBar.visibility = View.GONE
                 }
             }
@@ -147,7 +141,45 @@ class PlayerActivity : AppCompatActivity() {
             addJavascriptInterface(VideoBridge(), "Android")
 
             requestFocus(View.FOCUS_DOWN)
-            loadUrl(url)
+
+            val encodedUrl = URLEncoder.encode(url, "UTF-8")
+            val wrapperHtml = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+</style>
+<script>
+document.title = 'NahuApp v$ver';
+</script>
+</head>
+<body>
+<iframe id="playerFrame"
+    src="$url"
+    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+    allowfullscreen>
+</iframe>
+<script>
+var frame = document.getElementById('playerFrame');
+frame.addEventListener('load', function() {
+    document.title = 'NahuApp v$ver | loaded';
+});
+</script>
+</body>
+</html>
+""".trimIndent()
+
+            loadDataWithBaseURL(
+                "https://stream-xhd.com/",
+                wrapperHtml,
+                "text/html",
+                "UTF-8",
+                "https://stream-xhd.com/"
+            )
         }
     }
 
@@ -219,27 +251,6 @@ class PlayerActivity : AppCompatActivity() {
             return Intent(packageContext, PlayerActivity::class.java).putExtra("url", url)
         }
 
-        private const val IFRAME_DEFEAT_INNER = """<script>
-(function() {
-    Object.defineProperty(window, 'top', {
-        get: function() {
-            var fake = Object.create(window);
-            Object.defineProperty(fake, 'location', { get: function() { return window.location; } });
-            return fake;
-        },
-        configurable: true
-    });
-    Object.defineProperty(window, 'parent', {
-        get: function() { return window; },
-        configurable: true
-    });
-    Object.defineProperty(window, 'frameElement', {
-        get: function() { return document.createElement('iframe'); },
-        configurable: true
-    });
-})();
-</script>
-"""
         private const val AUTO_SETUP_VIDEO_JS = """
 (function() {
     function setup(v) {

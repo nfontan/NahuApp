@@ -36,6 +36,9 @@ class MainActivity : AppCompatActivity() {
         webView = findViewById(R.id.webView)
         fullscreenContainer = findViewById(R.id.fullscreenContainer)
 
+        val pkgInfo = packageManager.getPackageInfo(packageName, 0)
+        Toast.makeText(this, "v${pkgInfo.versionName}", Toast.LENGTH_LONG).show()
+
         webView.apply {
             settings.apply {
                 javaScriptEnabled = true
