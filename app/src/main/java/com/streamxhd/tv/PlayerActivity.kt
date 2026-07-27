@@ -160,11 +160,11 @@ frame.addEventListener('load', function() { setTimeout(tryPlay, 500); });
 """.trimIndent()
 
             loadDataWithBaseURL(
-                "https://stream-xhd.com/",
+                "https://streamx-hd.com/",
                 wrapperHtml,
                 "text/html",
                 "UTF-8",
-                "https://stream-xhd.com/"
+                "https://streamx-hd.com/"
             )
         }
     }
