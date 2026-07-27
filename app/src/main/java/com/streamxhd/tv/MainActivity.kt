@@ -150,18 +150,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val INJECTED_JS = """
 (function() {
-    document.addEventListener('click', function(e) {
-        var btn = e.target.closest('[data-action="play"]');
-        if (btn) {
-            e.preventDefault();
-            e.stopPropagation();
-            var url = btn.getAttribute('data-url');
-            if (url && url.trim()) {
-                url = url.trim().replace(/live1\.php/gi, 'live2.php');
-                Android.playUrl(url);
-            }
-        }
-    }, true);
+    localStorage.setItem('playbackMode', 'live2');
     var refreshBtn = document.createElement('div');
     refreshBtn.id = '__refresh_btn';
     refreshBtn.textContent = '\u21BB';

@@ -5,7 +5,8 @@ App Android nativa (Kotlin) que wrappea stream-xhd.com en un WebView. Diseñada 
 
 ## Arquitectura
 - **MainActivity**: WebView principal. Inyecta `INJECTED_JS` via `onPageFinished` que:
-  - Intercepta clicks en `[data-action="play"]`, reemplaza `live1.php` → `live2.php` (calidad adaptativa), pasa URL via `PlayBridge` (`@JavascriptInterface`).
+  - Forza `localStorage.playbackMode = 'live2'` (calidad adaptativa automática).
+  - No intercepta clicks en play — el sitio carga el video en su propio `<iframe>` (evita bloqueo por validación de iframe en el servidor).
   - Inyecta botón refresh flotante (`#__refresh_btn`) dentro de la página (D-pad reachable).
   - Agrega `tabindex="0"` a `[data-action="play"]` y `.tab` (filtros), auto-focus al primer `.tab`.
   - `MutationObserver` mantiene tabindex y refresh button ante cambios del DOM.
@@ -24,12 +25,13 @@ App Android nativa (Kotlin) que wrappea stream-xhd.com en un WebView. Diseñada 
 
 ## Cambios aplicados (Jul 5)
 1. **Control por D-pad en el reproductor**: Mapeo de teclas + `VideoBridge` + JS de control.
-2. **Calidad automática forzada**: Reemplazo `live1.php` → `live2.php` en URL del play.
+2. **Calidad automática forzada**: `localStorage.playbackMode = 'live2'` en INJECTED_JS.
 3. **Volumen máximo removido**: Se sacó `AudioManager` (subía volumen del TV). Se reemplazó por JS que desmutea el `<video>` directo.
 4. **Botón refresh**: Se cambió de `Button` nativo (no reachable por D-pad) a `<div>` inyectado en la página con `tabindex`.
 5. **Filtros `.tab` navegables**: `tabindex="0"` + `focusFirstTab()` al cargar la página.
 6. **Auto-play + auto-fullscreen**: `mediaPlaybackRequiresUserGesture = false` + `AUTO_SETUP_VIDEO_JS` que reproduce y entra a fullscreen automáticamente.
 7. **Marco amarillo eliminado**: `v.style.outline = 'none'` en el `<video>`.
+8. **Playback en iframe nativo**: Se removió la interceptación de clicks en play. El sitio carga el video en su propio `<iframe>` dentro de la página, evitando el bloqueo por validación de iframe del servidor.
 
 ## Build & Deploy
 - Build: `./gradlew assembleRelease` → `app/build/outputs/apk/release/app-release-unsigned.apk`
