@@ -65,6 +65,7 @@ class PlayerActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     progressBar.visibility = View.VISIBLE
+                    view?.evaluateJavascript(IFRAME_DEFEAT_JS, null)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -113,7 +114,7 @@ class PlayerActivity : AppCompatActivity() {
             addJavascriptInterface(VideoBridge(), "Android")
 
             requestFocus(View.FOCUS_DOWN)
-            loadUrl(url)
+            loadUrl(url, mapOf("Referer" to "https://stream-xhd.com/"))
         }
     }
 
@@ -185,6 +186,15 @@ class PlayerActivity : AppCompatActivity() {
             return Intent(packageContext, PlayerActivity::class.java).putExtra("url", url)
         }
 
+        private const val IFRAME_DEFEAT_JS = """
+(function() {
+    try {
+        Object.defineProperty(window, 'top', { get: function() { return window; } });
+        Object.defineProperty(window, 'parent', { get: function() { return window; } });
+        Object.defineProperty(window, 'frameElement', { get: function() { return null; } });
+    } catch(e) {}
+})();
+"""
         private const val AUTO_SETUP_VIDEO_JS = """
 (function() {
     function setup(v) {

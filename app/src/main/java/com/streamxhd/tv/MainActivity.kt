@@ -151,6 +151,17 @@ class MainActivity : AppCompatActivity() {
         private const val INJECTED_JS = """
 (function() {
     localStorage.setItem('playbackMode', 'live2');
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-action="play"]');
+        if (btn) {
+            e.preventDefault();
+            e.stopPropagation();
+            var url = btn.getAttribute('data-url');
+            if (url && url.trim()) {
+                Android.playUrl(url.trim());
+            }
+        }
+    }, true);
     var refreshBtn = document.createElement('div');
     refreshBtn.id = '__refresh_btn';
     refreshBtn.textContent = '\u21BB';
