@@ -31,6 +31,13 @@ El server tiene **3 capas de protección** contra acceso directo:
 
 **Solución**: Wrapper HTML con `<iframe>` → el browser envía `Sec-Fetch-Dest: iframe` naturalmente → el inline check ve que `window.top !== window.self` → todo pasa.
 
+## Bloqueo de publicidad
+El player inyecta scripts de ads: `skygg.lat/ads/lib.js` (aclib + runPop), `llvpn.com/tag.min.js` (zona 10501364) e Histats (`s10.histats.com`, `sstatic1.histats.com`). Aparecían overlays tipo QR "confirme que no es un robot" y ads de Shine/Temu antes del video.
+
+**Solución (aplicada en MainActivity y PlayerActivity)**:
+- `shouldInterceptRequest` devuelve respuesta vacía (`text/plain`, `ByteArrayInputStream(ByteArray(0))`) para hosts bloqueados: `skygg.lat`, `llvpn.com`, `histats.com`.
+- En el wrapper HTML del PlayerActivity: `killAds()` — MutationObserver + `setInterval(800ms)` que remueve iframes del player cuyo `src` no sea `streamx-hd.com`/`stream-xhd.com` (los ads se inyectan como iframes cross-origin).
+
 ## Bugs conocidos (sin fix)
 1. **PlayerActivity sin `canGoBack()`**: BACK siempre cierra, no permite navegar atrás en el WebView (intencional para video player).
 
