@@ -11,12 +11,15 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import java.io.ByteArrayInputStream
+import android.util.Log
 
 class MainActivity : AppCompatActivity() {
 
@@ -68,6 +71,21 @@ class MainActivity : AppCompatActivity() {
                     error: WebResourceError?
                 ) {
                     progressBar.visibility = View.GONE
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    val host = request?.url?.host
+                    if (host != null && AD_BLOCKED_HOSTS.any { host == it || host.endsWith(".$it") }) {
+                        Log.d("MainActivity", "Bloqueada request de ad: $host")
+                        return WebResourceResponse(
+                            "text/plain", "UTF-8",
+                            ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+                    return super.shouldInterceptRequest(view, request)
                 }
             }
 
@@ -151,6 +169,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private val AD_BLOCKED_HOSTS = setOf(
+            "skygg.lat",
+            "llvpn.com",
+            "histats.com"
+        )
+
         private const val INJECTED_JS = """
 (function() {
     localStorage.setItem('playbackMode', 'live2');

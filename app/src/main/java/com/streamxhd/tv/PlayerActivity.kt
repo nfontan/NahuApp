@@ -11,6 +11,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -18,6 +19,7 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import java.io.ByteArrayInputStream
 
 class PlayerActivity : AppCompatActivity() {
 
@@ -81,6 +83,21 @@ class PlayerActivity : AppCompatActivity() {
                 ) {
                     Log.e("PlayerActivity", "Error: ${error?.description} for ${request?.url}")
                     progressBar.visibility = View.GONE
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    val host = request?.url?.host
+                    if (host != null && AD_BLOCKED_HOSTS.any { host == it || host.endsWith(".$it") }) {
+                        Log.d("PlayerActivity", "Bloqueada request de ad: $host")
+                        return WebResourceResponse(
+                            "text/plain", "UTF-8",
+                            ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+                    return super.shouldInterceptRequest(view, request)
                 }
             }
 
@@ -156,6 +173,23 @@ function tryPlay() {
     if (playAttempts < 20) setTimeout(tryPlay, 1000);
 }
 frame.addEventListener('load', function() { setTimeout(tryPlay, 500); });
+
+function killAds() {
+    try {
+        var doc = frame.contentDocument || frame.contentWindow.document;
+        if (!doc) return;
+        var iframes = doc.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            var f = iframes[i];
+            var src = f.src || '';
+            if (src.indexOf('streamx-hd.com') === -1 && src.indexOf('stream-xhd.com') === -1) {
+                if (f.parentNode) f.parentNode.removeChild(f);
+            }
+        }
+    } catch(e) {}
+}
+new MutationObserver(function() { killAds(); }).observe(document.body, { childList: true, subtree: true });
+setInterval(killAds, 800);
 </script>
 </body>
 </html>
@@ -238,6 +272,12 @@ frame.addEventListener('load', function() { setTimeout(tryPlay, 500); });
         fun newIntent(packageContext: android.content.Context, url: String): Intent {
             return Intent(packageContext, PlayerActivity::class.java).putExtra("url", url)
         }
+
+        private val AD_BLOCKED_HOSTS = setOf(
+            "skygg.lat",
+            "llvpn.com",
+            "histats.com"
+        )
 
         private const val AUTO_SETUP_VIDEO_JS = """
 (function() {
