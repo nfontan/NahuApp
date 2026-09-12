@@ -40,6 +40,9 @@ class PlayerActivity : AppCompatActivity() {
             return
         }
 
+        val baseUrl = getBaseUrl(url)
+        Log.d("PlayerActivity", "Player URL: $url | Wrapper base: $baseUrl")
+
         progressBar = findViewById(R.id.playerProgressBar)
         webView = findViewById(R.id.playerWebView)
 
@@ -178,13 +181,19 @@ function killAds() {
     try {
         var doc = frame.contentDocument || frame.contentWindow.document;
         if (!doc) return;
+        var playerHost = '';
+        try { playerHost = new URL(frame.src).host; } catch(e) {}
         var iframes = doc.querySelectorAll('iframe');
         for (var i = 0; i < iframes.length; i++) {
             var f = iframes[i];
             var src = f.src || '';
-            if (src.indexOf('streamx-hd.com') === -1 && src.indexOf('stream-xhd.com') === -1) {
-                if (f.parentNode) f.parentNode.removeChild(f);
-            }
+            var ok = false;
+            if (playerHost && src.indexOf(playerHost) !== -1) ok = true;
+            if (src.indexOf('streamxhd.com') !== -1 || src.indexOf('stream-xhd.com') !== -1) ok = true;
+            if (!ok && f.parentNode) f.parentNode.removeChild(f);
+        }
+    } catch(e) {}
+}
         }
     } catch(e) {}
 }
@@ -196,11 +205,11 @@ setInterval(killAds, 800);
 """.trimIndent()
 
             loadDataWithBaseURL(
-                "https://streamx-hd.com/",
+                baseUrl,
                 wrapperHtml,
                 "text/html",
                 "UTF-8",
-                "https://streamx-hd.com/"
+                baseUrl
             )
         }
     }
@@ -271,6 +280,15 @@ setInterval(killAds, 800);
     companion object {
         fun newIntent(packageContext: android.content.Context, url: String): Intent {
             return Intent(packageContext, PlayerActivity::class.java).putExtra("url", url)
+        }
+
+        private fun getBaseUrl(url: String): String {
+            return if (url.startsWith("http")) {
+                val uri = android.net.Uri.parse(url)
+                "${uri.scheme}://${uri.host}/"
+            } else {
+                "https://streamxhd.com/"
+            }
         }
 
         private val AD_BLOCKED_HOSTS = setOf(

@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var doubleBackToExit = false
+    private var currentDomainIndex = 0
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,6 +72,9 @@ class MainActivity : AppCompatActivity() {
                     error: WebResourceError?
                 ) {
                     progressBar.visibility = View.GONE
+                    if (request?.isForMainFrame == true && currentDomainIndex < FALLBACK_DOMAINS.size - 1) {
+                        tryNextDomain()
+                    }
                 }
 
                 override fun shouldInterceptRequest(
@@ -122,7 +126,7 @@ class MainActivity : AppCompatActivity() {
             addJavascriptInterface(PlayBridge(), "Android")
 
             requestFocus(View.FOCUS_DOWN)
-            loadUrl("https://stream-xhd.com/")
+            loadUrl("https://${FALLBACK_DOMAINS[0]}/")
         }
     }
 
@@ -158,12 +162,25 @@ class MainActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
+    private fun tryNextDomain() {
+        if (currentDomainIndex < FALLBACK_DOMAINS.size - 1) {
+            currentDomainIndex++
+            val next = FALLBACK_DOMAINS[currentDomainIndex]
+            Log.d("MainActivity", "Fallback al dominio: $next")
+            webView.loadUrl("${next}/")
+        } else {
+            Toast.makeText(this, "No se pudo conectar", Toast.LENGTH_LONG).show()
+        }
+    }
+
     inner class PlayBridge {
         @JavascriptInterface
         fun playUrl(url: String) {
             if (url.isBlank()) return
+            val base = "https://${FALLBACK_DOMAINS[currentDomainIndex].removePrefix("https://")}"
+            val finalUrl = if (url.startsWith("http")) url else "$base$url"
             runOnUiThread {
-                startActivity(PlayerActivity.newIntent(this@MainActivity, url))
+                startActivity(PlayerActivity.newIntent(this@MainActivity, finalUrl))
             }
         }
     }
@@ -173,6 +190,12 @@ class MainActivity : AppCompatActivity() {
             "skygg.lat",
             "llvpn.com",
             "histats.com"
+        )
+
+        private val FALLBACK_DOMAINS = listOf(
+            "streamxhd.com",
+            "streamxhd.st",
+            "streamxhd.click"
         )
 
         private const val INJECTED_JS = """

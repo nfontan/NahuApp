@@ -38,6 +38,14 @@ El player inyecta scripts de ads: `skygg.lat/ads/lib.js` (aclib + runPop), `llvp
 - `shouldInterceptRequest` devuelve respuesta vacía (`text/plain`, `ByteArrayInputStream(ByteArray(0))`) para hosts bloqueados: `skygg.lat`, `llvpn.com`, `histats.com`.
 - En el wrapper HTML del PlayerActivity: `killAds()` — MutationObserver + `setInterval(800ms)` que remueve iframes del player cuyo `src` no sea `streamx-hd.com`/`stream-xhd.com` (los ads se inyectan como iframes cross-origin).
 
+## Dominios con fallback
+El dominio principal de la web cambia con el tiempo. Directorio oficial: `https://streamveri.xyz/`. Dominios de respaldo configurados en `FALLBACK_DOMAINS` (MainActivity):
+- `streamxhd.com` (principal)
+- `streamxhd.st`
+- `streamxhd.click`
+
+**Comportamiento**: `onReceivedError` en main frame navega al siguiente dominio automáticamente. `PlayBridge.playUrl()` resuelve URLs relativas contra el dominio actual. `PlayerActivity.getBaseUrl()` deriva la base del wrapper desde el host del player URL (same-origin dinámico) y `killAds()` permite el host activo del player.
+
 ## Bugs conocidos (sin fix)
 1. **PlayerActivity sin `canGoBack()`**: BACK siempre cierra, no permite navegar atrás en el WebView (intencional para video player).
 
@@ -52,11 +60,13 @@ El player inyecta scripts de ads: `skygg.lat/ads/lib.js` (aclib + runPop), `llvp
 8. **Playback en wrapper iframe**: PlayerActivity carga un wrapper HTML con `<iframe src="player_url">` same-origin (`streamx-hd.com`). Esto evita las 3 capas de protección del server. El wrapper llama `unlockSound()` del player para unmute + ocultar overlay.
 
 ## Build & Deploy
-- Build: `/tmp/opencode/gradle-8.5/bin/gradle clean assembleRelease` (usar gradle directo, el wrapper tiene issues con JDK)
+- Build: `/home/nahu/opencode-tools/gradle-8.5/bin/gradle clean assembleRelease` (usar gradle directo, el wrapper tiene issues con JDK)
 - Sign: `zipalign -v -p -f 4 app-release-unsigned.apk aligned.apk && apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey aligned.apk`
-- JDK 17 en `/tmp/opencode/jdk17`, Android SDK 34 + build-tools 34.0.0 en `/tmp/opencode/android-sdk/`
-- Debug keystore: `/tmp/opencode/debug.keystore` (password: android)
-- APK firmado se copia a `releases/NahuApp.apk` y `C:\Users\Nahu\Desktop\NahuApp.apk`
+- JDK 17 en `/home/nahu/opencode-tools/jdk17`, Android SDK 34 + build-tools 34.0.0 en `/home/nahu/opencode-tools/android-sdk/`
+- **Toolchain persistente** en `/home/nahu/opencode-tools` (no usar `/tmp/opencode` — se borra al reiniciar el WSL)
+- `local.properties`: `sdk.dir=/home/nahu/opencode-tools/android-sdk`
+- Debug keystore: `/home/nahu/opencode-tools/debug.keystore` (password: android)
+- APK firmado se copia a `releases/NahuApp.apk`
 - **Push al repo**: El usuario descarga desde `https://github.com/nfontan/NahuApp/blob/main/releases/NahuApp.apk` (no desde releases assets). Hay que hacer `git push` para que se actualice.
 - GitHub PAT guardado en `.github_pat` (agregado a `.gitignore`).
 - GitHub repo: `https://github.com/nfontan/NahuApp.git`, user `nfontan`.
