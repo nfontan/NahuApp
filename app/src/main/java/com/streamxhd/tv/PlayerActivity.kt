@@ -77,6 +77,9 @@ class PlayerActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     progressBar.visibility = View.GONE
                     view?.evaluateJavascript(AUTO_SETUP_VIDEO_JS, null)
+                    gestureUnlock(view, 400)
+                    gestureUnlock(view, 1400)
+                    gestureUnlock(view, 2800)
                 }
 
                 override fun onReceivedError(
@@ -306,6 +309,15 @@ setInterval(killAds, 800);
         customViewCallback = null
         fullscreenContainer.visibility = View.GONE
         webView.visibility = View.VISIBLE
+    }
+
+    private fun gestureUnlock(view: WebView?, delayMillis: Long) {
+        view?.postDelayed({
+            val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)
+            val up = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN)
+            view.dispatchKeyEvent(down)
+            view.dispatchKeyEvent(up)
+        }, delayMillis)
     }
 
     inner class VideoBridge {
