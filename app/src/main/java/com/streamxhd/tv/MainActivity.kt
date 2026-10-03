@@ -189,6 +189,8 @@ class MainActivity : AppCompatActivity() {
         private val AD_BLOCKED_HOSTS = setOf(
             "skygg.lat",
             "llvpn.com",
+            "llvpn.one",
+            "bz.cubbiesexcheat.com",
             "histats.com"
         )
 

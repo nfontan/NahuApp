@@ -160,8 +160,12 @@ var playAttempts = 0;
 function tryPlay() {
     try {
         var win = frame.contentWindow || frame.contentDocument.defaultView;
-        if (typeof win.unlockSound === 'function') {
+        if (typeof win.unlockSound === 'function' && win.soundUnlocked !== true) {
             win.unlockSound();
+        }
+        if (!win.soundUnlocked) {
+            playAttempts++;
+            if (playAttempts < 30) setTimeout(tryPlay, 500);
             return;
         }
         var doc = frame.contentDocument || win.document;
@@ -171,9 +175,10 @@ function tryPlay() {
             v.volume = 1.0;
             v.play().catch(function() {});
         }
-    } catch(e) {}
-    playAttempts++;
-    if (playAttempts < 20) setTimeout(tryPlay, 1000);
+    } catch(e) {
+        playAttempts++;
+        if (playAttempts < 30) setTimeout(tryPlay, 500);
+    }
 }
 frame.addEventListener('load', function() { setTimeout(tryPlay, 500); });
 
@@ -294,6 +299,8 @@ setInterval(killAds, 800);
         private val AD_BLOCKED_HOSTS = setOf(
             "skygg.lat",
             "llvpn.com",
+            "llvpn.one",
+            "bz.cubbiesexcheat.com",
             "histats.com"
         )
 
