@@ -14,11 +14,12 @@ App Android nativa (Kotlin) que wrappea stream-xhd.com en un WebView. Diseñada 
   - Carga un HTML wrapper via `loadDataWithBaseURL("https://streamx-hd.com/", ...)` con un `<iframe src="URL_DEL_PLAYER">`.
   - El iframe envía `Sec-Fetch-Dest: iframe` automáticamente (check server-side del player).
   - Wrapper e iframe son **same-origin** (`streamx-hd.com`), permitiendo acceso al contenido del iframe.
-  - Script wrapper llama `unlockSound()` del player para desmutear + ocultar overlay de sonido.
+  - Script wrapper llama `unlockSound()` del player para desmutear + ocultar overlay de sonido. **⚠ OBSOLETO (Sep 2026)**: el player ya no expone `unlockSound`/`soundUnlocked`. Ahora usa **Clappr 0.8** con `autoPlay:false, mute:false, volume:100` y expone `window.player`. El wrapper llama `win.player.play()` (vía `isPlaying()` para chequear estado) y desmutea el `<video>` nativo como respaldo.
   - Intento de auto-play via `v.play()` en el video del iframe.
   - `mediaPlaybackRequiresUserGesture = false`.
   - `screenOrientation = "landscape"`.
   - Manejo de D-pad: CENTER/ENTER/PLAY_PAUSE → toggle play/pause, LEFT/RIGHT → seek ±15s, INFO → fullscreen toggle.
+  - **IMPORTANTE**: Los JS de control (TOGGLE/SEEK/FULLSCREEN) deben resolver el video **dentro del iframe** (`f.contentWindow.document.querySelector('video')`), NO en el documento wrapper (ahí no hay video).
   - `VideoBridge` (`@JavascriptInterface`) para trackear foco del video.
   - Fullscreen HTML5 (`onShowCustomView`/`onHideCustomView`).
 
@@ -57,7 +58,9 @@ El dominio principal de la web cambia con el tiempo. Directorio oficial: `https:
 5. **Filtros `.tab` navegables**: `tabindex="0"` + `focusFirstTab()` al cargar la página.
 6. **Auto-play + auto-fullscreen**: `mediaPlaybackRequiresUserGesture = false` + `AUTO_SETUP_VIDEO_JS` que reproduce y entra a fullscreen automáticamente.
 7. **Marco amarillo eliminado**: `v.style.outline = 'none'` en el `<video>`.
-8. **Playback en wrapper iframe**: PlayerActivity carga un wrapper HTML con `<iframe src="player_url">` same-origin (`streamx-hd.com`). Esto evita las 3 capas de protección del server. El wrapper llama `unlockSound()` del player para unmute + ocultar overlay.
+8. **Playback en wrapper iframe**: PlayerActivity carga un wrapper HTML con `<iframe src="player_url">` same-origin (`streamx-hd.com`). Esto evita las 3 capas de protección del server.
+9. **Autoplay con nueva API del player (Oct 2026)**: El server migró de `unlockSound()`/`soundUnlocked` (que desaparecieron) a **Clappr 0.8** (`autoPlay:false, mute:false, volume:100`, expone `window.player` con `play()`/`isPlaying()`). El wrapper `tryPlay()` ahora llama `win.player.play()`, como respaldo `v.play()` + unmute en el `<video>`, y reintenta hasta 60×500ms. Los JS de D-pad (TOGGLE/SEEK/FULLSCREEN) resuelven el video dentro del iframe.
+10. **Auto-update OTA (Oct 2026)**: MainActivity chequea `releases/version.txt` en GitHub al abrir; si hay versión mayor, diálogo → descarga APK → instala vía FileProvider (`REQUEST_INSTALL_PACKAGES`). El `versionCode` se auto-genera con `git rev-list --count HEAD` (versión `1.2-build<N>`). `build.gradle.kts` escribe `releases/version.txt` automáticamente (task `writeVersionFile`, finalizer de `assembleRelease`).
 
 ## Build & Deploy
 - Build: `/home/nahu/opencode-tools/gradle-8.5/bin/gradle clean assembleRelease` (usar gradle directo, el wrapper tiene issues con JDK)
