@@ -157,18 +157,68 @@ class PlayerActivity : AppCompatActivity() {
 <script>
 var frame = document.getElementById('playerFrame');
 var playAttempts = 0;
-function tryPlay() {
-    try {
-        var win = frame.contentWindow || frame.contentDocument.defaultView;
-        if (typeof win.unlockSound === 'function' && win.soundUnlocked !== true) {
-            win.unlockSound();
-        }
-        if (win.soundUnlocked === true) return;
-    } catch(e) {}
-    playAttempts++;
-    if (playAttempts < 40) setTimeout(tryPlay, 500);
+
+function playerWin() {
+    try { return frame.contentWindow || frame.contentDocument.defaultView; } catch(e) {}
+    return null;
 }
+
+function tryPlay() {
+    var win = playerWin();
+    if (!win) { retryTryPlay(); return; }
+    try {
+        var v = win.document.querySelector('#player video') || win.document.querySelector('video');
+        var p = win.player;
+        if (p && typeof p.play === 'function' && typeof p.isPlaying === 'function') {
+            if (!p.isPlaying()) { try { p.play(); } catch(e2) {} }
+        }
+        if (p && !p.isPlaying()) {
+            if (v && typeof v.play === 'function') {
+                v.muted = false; v.volume = 1.0;
+                try { v.play().catch(function(){}); } catch(e3) {}
+            }
+        }
+        setupVideo(v);
+        if ((!p || p.isPlaying()) && (v && !v.paused)) return;
+    } catch(e) {}
+    retryTryPlay();
+}
+function retryTryPlay() {
+    playAttempts++;
+    if (playAttempts < 60) setTimeout(tryPlay, 500);
+}
+
+function setupVideo(v) {
+    if (!v) return;
+    v.muted = false;
+    v.volume = 1.0;
+    v.setAttribute('tabindex', '0');
+    v.style.outline = 'none';
+    v.removeAttribute('controls');
+    try { Android.onVideoFocus(); } catch(e) {}
+    if (!v._setupListeners) {
+        v._setupListeners = true;
+        try {
+            v.addEventListener('focus', function() { Android.onVideoFocus(); });
+            v.addEventListener('blur', function() { Android.onVideoBlur(); });
+        } catch(e) {}
+    }
+    try { if (frame && document.activeElement !== v && v.focus) v.focus(); } catch(e) {}
+}
+
 frame.addEventListener('load', function() { playAttempts = 0; setTimeout(tryPlay, 500); });
+new MutationObserver(function() {
+    var v = (playerWin() || {}).document;
+    if (v) setupVideo(v.querySelector('#player video') || v.querySelector('video'));
+}).observe(document.body, { childList: true, subtree: true });
+setInterval(function() {
+    var win = playerWin();
+    if (win) {
+        var v = win.document.querySelector('#player video') || win.document.querySelector('video');
+        if (v) { v.muted = false; v.volume = 1.0; }
+        setupVideo(v);
+    }
+}, 2000);
 
 function killAds() {
     try {
@@ -294,6 +344,13 @@ setInterval(killAds, 800);
 
         private const val AUTO_SETUP_VIDEO_JS = """
 (function() {
+    function getVideo() {
+        var f = document.getElementById('playerFrame');
+        if (!f) return null;
+        var w = f.contentWindow || f.contentDocument.defaultView;
+        if (!w) return null;
+        return w.document.querySelector('#player video') || w.document.querySelector('video');
+    }
     function setup(v) {
         if (!v) return;
         v.muted = false;
@@ -303,7 +360,6 @@ setInterval(killAds, 800);
         v.removeAttribute('controls');
         v.addEventListener('focus', function() { Android.onVideoFocus(); });
         v.addEventListener('blur', function() { Android.onVideoBlur(); });
-        if (document.activeElement === document.body) { v.focus(); }
         var tryPlay = function() {
             if (v.paused) {
                 v.play().then(function() {
@@ -317,31 +373,37 @@ setInterval(killAds, 800);
         v.addEventListener('canplay', tryPlay);
         v.addEventListener('loadedmetadata', tryPlay);
     }
-    setup(document.querySelector('video'));
-    new MutationObserver(function() {
-        var v = document.querySelector('video');
-        if (v && !v._setupDone) { v._setupDone = true; setup(v); }
-    }).observe(document.body, { childList: true, subtree: true });
+    setup(getVideo());
     setInterval(function() {
-        try {
-            var v = document.querySelector('video');
-            if (v && v.muted) { v.muted = false; v.volume = 1.0; }
-        } catch(e) {}
-    }, 2000);
+        var v = getVideo();
+        if (v) {
+            v.muted = false; v.volume = 1.0;
+            setup(v);
+        }
+    }, 3000);
 })();
 """
         private const val TOGGLE_PLAY_JS = """
 (function(){
     try {
-        var v = document.querySelector('video');
+        var f = document.getElementById('playerFrame');
+        if (!f) return;
+        var w = f.contentWindow || f.contentDocument.defaultView;
+        var v = w.document.querySelector('#player video') || w.document.querySelector('video');
         if (v) { if (v.paused) v.play(); else v.pause(); }
+        else if (w.player && typeof w.player.isPlaying === 'function') {
+            if (w.player.isPlaying()) { w.player.pause(); } else { w.player.play(); }
+        }
     } catch(e){}
 })();
 """
         private const val SEEK_BACK_JS = """
 (function(){
     try {
-        var v = document.querySelector('video');
+        var f = document.getElementById('playerFrame');
+        if (!f) return;
+        var w = f.contentWindow || f.contentDocument.defaultView;
+        var v = w.document.querySelector('#player video') || w.document.querySelector('video');
         if (v) { v.currentTime = Math.max(0, v.currentTime - 15); }
     } catch(e){}
 })();
@@ -349,7 +411,10 @@ setInterval(killAds, 800);
         private const val SEEK_FORWARD_JS = """
 (function(){
     try {
-        var v = document.querySelector('video');
+        var f = document.getElementById('playerFrame');
+        if (!f) return;
+        var w = f.contentWindow || f.contentDocument.defaultView;
+        var v = w.document.querySelector('#player video') || w.document.querySelector('video');
         if (v) { v.currentTime = Math.min(v.duration, v.currentTime + 15); }
     } catch(e){}
 })();
@@ -357,7 +422,10 @@ setInterval(killAds, 800);
         private const val TOGGLE_FULLSCREEN_JS = """
 (function(){
     try {
-        var v = document.querySelector('video');
+        var f = document.getElementById('playerFrame');
+        if (!f) return;
+        var w = f.contentWindow || f.contentDocument.defaultView;
+        var v = w.document.querySelector('#player video') || w.document.querySelector('video');
         if (v) {
             if (v.requestFullscreen) { v.requestFullscreen(); }
             else if (v.webkitRequestFullscreen) { v.webkitRequestFullscreen(); }
