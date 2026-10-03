@@ -160,27 +160,26 @@ var playAttempts = 0;
 function tryPlay() {
     try {
         var win = frame.contentWindow || frame.contentDocument.defaultView;
-        if (typeof win.unlockSound === 'function' && win.soundUnlocked !== true) {
-            win.unlockSound();
-        }
-        if (!win.soundUnlocked) {
-            playAttempts++;
-            if (playAttempts < 30) setTimeout(tryPlay, 500);
-            return;
-        }
         var doc = frame.contentDocument || win.document;
+        var btn = doc.getElementById('soundUnlock');
+        if (btn && btn.style.display !== 'none') {
+            try { btn.click(); } catch(e) {}
+        }
+        if (typeof win.unlockSound === 'function') {
+            try { win.unlockSound(); } catch(e) {}
+        }
         var v = doc.querySelector('video');
         if (v) {
             v.muted = false;
             v.volume = 1.0;
-            v.play().catch(function() {});
+            if (v.paused) { v.play().catch(function() {}); }
         }
-    } catch(e) {
-        playAttempts++;
-        if (playAttempts < 30) setTimeout(tryPlay, 500);
-    }
+        if (win.soundUnlocked === true) return;
+    } catch(e) {}
+    playAttempts++;
+    if (playAttempts < 40) setTimeout(tryPlay, 500);
 }
-frame.addEventListener('load', function() { setTimeout(tryPlay, 500); });
+frame.addEventListener('load', function() { playAttempts = 0; setTimeout(tryPlay, 500); });
 
 function killAds() {
     try {

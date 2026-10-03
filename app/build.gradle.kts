@@ -3,6 +3,19 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val buildVersionCode: Int = run {
+    try {
+        val p = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(rootProject.projectDir)
+            .redirectErrorStream(true)
+            .start()
+        val out = p.inputStream.bufferedReader().use { it.readText() }.trim()
+        out.toIntOrNull() ?: 1
+    } catch (e: Exception) {
+        1
+    }
+}
+
 android {
     namespace = "com.streamxhd.tv"
     compileSdk = 34
@@ -11,8 +24,8 @@ android {
         applicationId = "com.streamxhd.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2-secfetch"
+        versionCode = buildVersionCode
+        versionName = "1.2-build$buildVersionCode"
     }
 
     buildTypes {
