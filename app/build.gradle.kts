@@ -48,6 +48,19 @@ android {
     }
 }
 
+tasks.register("writeVersionFile") {
+    doLast {
+        val out = File(rootProject.projectDir, "releases/version.txt")
+        out.parentFile.mkdirs()
+        out.writeText(buildVersionCode.toString())
+        println("version.txt -> ${buildVersionCode}")
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy("writeVersionFile")
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")

@@ -1,9 +1,13 @@
 package com.streamxhd.tv
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -18,8 +22,11 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import java.io.ByteArrayInputStream
-import android.util.Log
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
@@ -42,6 +49,8 @@ class MainActivity : AppCompatActivity() {
 
         val pkgInfo = packageManager.getPackageInfo(packageName, 0)
         Toast.makeText(this, "v${pkgInfo.versionName}", Toast.LENGTH_LONG).show()
+
+        checkForUpdates(pkgInfo.versionCode)
 
         webView.apply {
             settings.apply {
@@ -185,6 +194,73 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun checkForUpdates(currentVersionCode: Int) {
+        Thread {
+            try {
+                val conn = URL(UPDATE_VERSION_URL).openConnection() as HttpURLConnection
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
+                val latest = conn.inputStream.bufferedReader().use { it.readText().trim() }.toIntOrNull()
+                conn.disconnect()
+                if (latest != null && latest > currentVersionCode) {
+                    runOnUiThread {
+                        promptUpdate(latest)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d("MainActivity", "Update check failed: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun promptUpdate(latest: Int) {
+        AlertDialog.Builder(this)
+            .setTitle("Actualización disponible")
+            .setMessage("Hay una nueva versión disponible ($latest). ¿Descargar e instalar?")
+            .setPositiveButton("Sí") { _, _ -> downloadAndInstall() }
+            .setNegativeButton("Ahora no", null)
+            .show()
+    }
+
+    private fun downloadAndInstall() {
+        Toast.makeText(this, "Descargando...", Toast.LENGTH_LONG).show()
+        Thread {
+            try {
+                val dir = File(cacheDir, "updates").apply { mkdirs() }
+                val apkFile = File(dir, "NahuApp.apk")
+                val conn = URL(UPDATE_APK_URL).openConnection() as HttpURLConnection
+                conn.connectTimeout = 30000
+                conn.readTimeout = 60000
+                conn.inputStream.use { input ->
+                    apkFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                conn.disconnect()
+                runOnUiThread {
+                    installApk(apkFile)
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Download failed: ${e.message}")
+                runOnUiThread {
+                    Toast.makeText(this, "Error al descargar", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun installApk(apkFile: File) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Install intent failed: ${e.message}")
+            Toast.makeText(this, "No se pudo abrir el instalador", Toast.LENGTH_LONG).show()
+        }
+    }
+
     companion object {
         private val AD_BLOCKED_HOSTS = setOf(
             "skygg.lat",
@@ -199,6 +275,11 @@ class MainActivity : AppCompatActivity() {
             "streamxhd.st",
             "streamxhd.click"
         )
+
+        private const val UPDATE_VERSION_URL =
+            "https://raw.githubusercontent.com/nfontan/NahuApp/main/releases/version.txt"
+        private const val UPDATE_APK_URL =
+            "https://raw.githubusercontent.com/nfontan/NahuApp/main/releases/NahuApp.apk"
 
         private const val INJECTED_JS = """
 (function() {

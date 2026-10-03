@@ -160,19 +160,8 @@ var playAttempts = 0;
 function tryPlay() {
     try {
         var win = frame.contentWindow || frame.contentDocument.defaultView;
-        var doc = frame.contentDocument || win.document;
-        var btn = doc.getElementById('soundUnlock');
-        if (btn && btn.style.display !== 'none') {
-            try { btn.click(); } catch(e) {}
-        }
-        if (typeof win.unlockSound === 'function') {
-            try { win.unlockSound(); } catch(e) {}
-        }
-        var v = doc.querySelector('video');
-        if (v) {
-            v.muted = false;
-            v.volume = 1.0;
-            if (v.paused) { v.play().catch(function() {}); }
+        if (typeof win.unlockSound === 'function' && win.soundUnlocked !== true) {
+            win.unlockSound();
         }
         if (win.soundUnlocked === true) return;
     } catch(e) {}
