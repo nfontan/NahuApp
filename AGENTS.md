@@ -1,76 +1,86 @@
 # Contexto del Proyecto — NahuApp (StreamXHD-TV)
 
 ## Que es
-App Android nativa (Kotlin) que wrappea stream-xhd.com en un WebView. Diseñada para Android TV. Sin librerías de terceros — solo WebView + HTML5 video.
+App Android nativa (Kotlin) que wrappea el sitio StreamXHD (hoy `streamxhd.sbs`) en un WebView. Diseñada para Android TV. Sin librerías de terceros — solo WebView + HTML5 video.
 
 ## Arquitectura
-- **MainActivity**: WebView principal. Inyecta `INJECTED_JS` via `onPageFinished` que:
-  - Forza `localStorage.playbackMode = 'live2'` (calidad adaptativa automática).
-  - Intercepts clicks en `[data-action="play"]` → extrae `data-url` → llama `Android.playUrl(url)` → abre `PlayerActivity`.
-  - Inyecta botón refresh flotante (`#__refresh_btn`) dentro de la página (D-pad reachable).
-  - Agrega `tabindex="0"` a `[data-action="play"]` y `.tab` (filtros), auto-focus al primer `.tab`.
-  - `MutationObserver` mantiene tabindex y refresh button ante cambios del DOM.
-- **PlayerActivity**: Actividad separada que recibe la URL del stream via Intent. Usa **wrapper HTML con iframe**:
-  - Carga un HTML wrapper via `loadDataWithBaseURL("https://streamx-hd.com/", ...)` con un `<iframe src="URL_DEL_PLAYER">`.
-  - El iframe envía `Sec-Fetch-Dest: iframe` automáticamente (check server-side del player).
-  - Wrapper e iframe son **same-origin** (`streamx-hd.com`), permitiendo acceso al contenido del iframe.
-  - Script wrapper llama `unlockSound()` del player para desmutear + ocultar overlay de sonido. **⚠ OBSOLETO (Sep 2026)**: el player ya no expone `unlockSound`/`soundUnlocked`. Ahora usa **Clappr 0.8** con `autoPlay:false, mute:false, volume:100` y expone `window.player`. El wrapper llama `win.player.play()` (vía `isPlaying()` para chequear estado) y desmutea el `<video>` nativo como respaldo.
-  - Intento de auto-play via `v.play()` en el video del iframe.
-  - `mediaPlaybackRequiresUserGesture = false`.
-  - `screenOrientation = "landscape"`.
-  - Manejo de D-pad: CENTER/ENTER/PLAY_PAUSE → toggle play/pause, LEFT/RIGHT → seek ±15s, INFO → fullscreen toggle.
-  - **IMPORTANTE**: Los JS de control (TOGGLE/SEEK/FULLSCREEN) deben resolver el video **dentro del iframe** (`f.contentWindow.document.querySelector('video')`), NO en el documento wrapper (ahí no hay video).
-  - `VideoBridge` (`@JavascriptInterface`) para trackear foco del video.
-  - Fullscreen HTML5 (`onShowCustomView`/`onHideCustomView`).
+- **WebGuards** (`WebGuards.kt`): reglas compartidas por las dos activities.
+  - `AD_BLOCKED_HOSTS` + `isAdHost()` / `blockedResponse()` (respuesta vacía para ads).
+  - `isSiteHost()`: cualquier dominio `streamxhd.*` / `streamx-hd.*`.
+  - `tvUserAgent()`: UA de Android TV con la versión real de Chrome/WebView del equipo.
+  - `normalizePlayerUrl()`: resuelve URLs relativas contra el dominio actual, rechaza esquemas que no sean http(s) y convierte `live1.php` → `live2.php` (calidad automática).
+- **MainActivity**: WebView principal.
+  - Dominios con respaldo (ver abajo). Valida que la página cargada sea la agenda (`#content` + `#tabs`) antes de inyectar.
+  - `INJECTED_JS` (una sola vez por página, guard `window.__nahuInjected`):
+    - Fuerza `playbackMode = 'live2'` y clickea el botón `[data-mode="live2"]` si la página arrancó en live1 (instalación nueva).
+    - Intercepta clicks en `[data-action="play"]` y manda **todos los servidores del evento** (mismo `data-target`, nombres de `.compact-server-row .compact-server-name`) a `Android.playServers(json)`. `Android.playUrl(url)` queda por compatibilidad.
+    - Botón refresh flotante (`#__refresh_btn`), `tabindex="0"` en play/`.tab`, foco inicial en el primer `.tab`.
+  - Bloquea popups (`setSupportMultipleWindows(true)` + `onCreateWindow` → false) y navegación fuera de `streamxhd.*` (`shouldOverrideUrlLoading`).
+  - OTA (ver abajo). `webView.destroy()` en `onDestroy`.
+- **PlayerActivity**: recibe `urls`, `names`, `index` (todos los servidores del evento).
+  - Carga un **wrapper HTML con iframe** via `loadDataWithBaseURL(base, ...)`, donde `base` = esquema+host de la URL del player (same-origin con el iframe, así el wrapper accede al documento del player).
+  - El iframe envía `Sec-Fetch-Dest: iframe` (check del server) y `window.top !== window.self` pasa el check inline.
+  - Script del wrapper: `tryPlay()` (Clappr `window.player.play()` / `<video>.play()` + `unlockSound()`), `setupVideo()` (desmuteo cada 2 s), `killAds()` (saca iframes que no sean `streamxhd.*`).
+  - **Teclas en `dispatchKeyEvent`**, no en `onKeyDown`: el WebView consume OK y las flechas, así que `onKeyDown` nunca las veía.
+    - OK/ENTER/PLAY_PAUSE → play/pausa · PLAY / PAUSE · ◀ ▶ (y REW/FF) → ±15 s dentro de la ventana DVR (`seekable`).
+    - ▼ / CH+ / NEXT → servidor siguiente · ▲ / CH- / PREV → anterior · INFO/MENU → muestra servidor actual.
+    - BACK → cierra el reproductor.
+  - Aviso si el servidor no arranca: poll cada 2 s (`STATUS_JS`); si en 20 s nunca llegó a `playing` (o `video.error`) muestra "Este servidor no arranca. Probá otro con ▲▼".
+  - Bloquea popups y cualquier navegación top-level (`shouldOverrideUrlLoading` → true siempre).
+  - `onPause`/`onResume` pausan el WebView (no sigue sonando en segundo plano); `onDestroy` destruye el WebView.
+  - `gestureUnlock()`: despacha DPAD_DOWN directo al WebView (no pasa por `dispatchKeyEvent`) a 400/1400/2800 ms.
+  - **IMPORTANTE**: los JS de control resuelven el video **dentro del iframe** (`playerFrame.contentWindow.document.querySelector('video')`).
 
-## Protecciones del server (streamx-hd.com)
-El server tiene **3 capas de protección** contra acceso directo:
+## Players del sitio (Nov 2026)
+- `live1.php` / `live2.php?stream=X` (dominio principal): **Clappr 0.8** + p2p (swarmcloud), `autoPlay:false`, expone `window.player`. Muestra un botón propio `#soundUnlock` "CLICK PARA ACTIVAR SONIDO" hasta que se llama `window.unlockSound()` (existe otra vez; `window.soundUnlocked` indica el estado). **No** es el aviso nativo de Chrome.
+- `channel/?id=X` (marcados "DRM" en la web, hoy en `streamxhd.click`): **Bitmovin 8**, DASH CENC. En el emulador no usa EME/Widevine (`video.mediaKeys` null), así que no hace falta `onPermissionRequest`.
+- La página `live2.php` tiene un anuncio propio (`nativeAdSequence`) que hace `window.open(url)` al primer click. Sin bloqueo de popups el WebView abría esa URL **en lugar del reproductor** (se vio `bc.game`).
 
-1. **Server-side (HTTP)**: Verifica header `Sec-Fetch-Dest`. Si no es `iframe` → 403 "Acceso directo bloqueado".
-2. **Client-side inline (HTML)**: Script同步 en `<head>`: `window.self !== window.top`. Si `true` → piensa que estás en iframe → pasa.
-3. **`no.js`**: Múltiples checks (sandbox, document.domain, plugins, parent). `window.parent === window` → no bloquea.
+## Protecciones del server
+1. **Server-side (HTTP)**: header `Sec-Fetch-Dest` debe ser `iframe` → si no, 403 "Acceso directo bloqueado".
+2. **Client-side inline**: `window.self !== window.top`.
+3. **`no.js`**: checks de sandbox, document.domain, plugins, parent.
 
-**Solución**: Wrapper HTML con `<iframe>` → el browser envía `Sec-Fetch-Dest: iframe` naturalmente → el inline check ve que `window.top !== window.self` → todo pasa.
+**Solución**: wrapper con `<iframe>` same-origin → el browser manda `Sec-Fetch-Dest: iframe` y los checks pasan.
 
 ## Bloqueo de publicidad
-El player inyecta scripts de ads: `skygg.lat/ads/lib.js` (aclib + runPop), `llvpn.com/tag.min.js` (zona 10501364) e Histats (`s10.histats.com`, `sstatic1.histats.com`). Aparecían overlays tipo QR "confirme que no es un robot" y ads de Shine/Temu antes del video.
+- Red: `shouldInterceptRequest` → respuesta vacía para `skygg.lat`, `llvpn.com`, `llvpn.one`, `bz.cubbiesexcheat.com`, `histats.com` (y subdominios). Lista en `WebGuards`.
+- DOM: `killAds()` en el wrapper.
+- Popups/redirecciones: bloqueados en ambas activities.
 
-**Solución (aplicada en MainActivity y PlayerActivity)**:
-- `shouldInterceptRequest` devuelve respuesta vacía (`text/plain`, `ByteArrayInputStream(ByteArray(0))`) para hosts bloqueados: `skygg.lat`, `llvpn.com`, `histats.com`.
-- En el wrapper HTML del PlayerActivity: `killAds()` — MutationObserver + `setInterval(800ms)` que remueve iframes del player cuyo `src` no sea `streamx-hd.com`/`stream-xhd.com` (los ads se inyectan como iframes cross-origin).
+## Dominios con respaldo
+Directorio oficial: `https://streamveri.xyz/` (hoy lista `streamxhd.sbs` principal, `.st`, `.click`; `streamxhd.com` redirige a `.sbs`).
 
-## Dominios con fallback
-El dominio principal de la web cambia con el tiempo. Directorio oficial: `https://streamveri.xyz/`. Dominios de respaldo configurados en `FALLBACK_DOMAINS` (MainActivity):
-- `streamxhd.com` (principal)
-- `streamxhd.st`
-- `streamxhd.click`
+Orden de prueba (`startDomainCycle`): último dominio que funcionó (`SharedPreferences` `nahuapp/last_domain`) → dominios leídos del directorio en el arranque anterior (`discovered_domains`) → `DEFAULT_DOMAINS` (`streamxhd.sbs`, `.st`, `.click`, `.com`). El directorio se lee en cada arranque en segundo plano y los dominios nuevos se agregan a la lista en curso.
 
-**Comportamiento**: `onReceivedError` en main frame navega al siguiente dominio automáticamente. `PlayBridge.playUrl()` resuelve URLs relativas contra el dominio actual. `PlayerActivity.getBaseUrl()` deriva la base del wrapper desde el host del player URL (same-origin dinámico) y `killAds()` permite el host activo del player.
+Se pasa al siguiente dominio si: error de red en el main frame, HTTP >= 400 en el main frame, timeout (12 s hasta `onPageCommitVisible`), redirección fuera de `streamxhd.*` (dominio vencido/estacionado) o la página no es la agenda. Si fallan todos: diálogo "No se pudo conectar" con **Reintentar** / Salir.
 
-## Bugs conocidos (sin fix)
-1. **PlayerActivity sin `canGoBack()`**: BACK siempre cierra, no permite navegar atrás en el WebView (intencional para video player).
+## Auto-update OTA
+- Al abrir, MainActivity lee `releases/version.txt` de GitHub (raw, sin cache); si es mayor que el `versionCode` instalado → diálogo → descarga `releases/NahuApp.apk` a `cacheDir/updates` (archivo `.part` + rename).
+- Antes de abrir el instalador verifica con `getPackageArchiveInfo` que sea `com.streamxhd.tv` y de versión mayor (evita instalar descargas truncadas).
+- Instala vía FileProvider (`REQUEST_INSTALL_PACKAGES`). Para que actualice sin desinstalar, el APK se firma **siempre** con `/home/nahu/opencode-tools/debug.keystore`.
+- `versionCode` = `git rev-list --count HEAD` al compilar; `versionName` = `1.3-build<N>`. `writeVersionFile` (finalizer de `assembleRelease`) escribe `releases/version.txt`.
 
-## Cambios aplicados (Jul 5-26)
-1. **Control por D-pad en el reproductor**: Mapeo de teclas + `VideoBridge` + JS de control.
-2. **Calidad automática forzada**: `localStorage.playbackMode = 'live2'` en INJECTED_JS.
-3. **Volumen máximo removido**: Se sacó `AudioManager` (subía volumen del TV). Se reemplazó por JS que desmutea el `<video>` directo.
-4. **Botón refresh**: Se cambió de `Button` nativo (no reachable por D-pad) a `<div>` inyectado en la página con `tabindex`.
-5. **Filtros `.tab` navegables**: `tabindex="0"` + `focusFirstTab()` al cargar la página.
-6. **Auto-play + auto-fullscreen**: `mediaPlaybackRequiresUserGesture = false` + `AUTO_SETUP_VIDEO_JS` que reproduce y entra a fullscreen automáticamente.
-7. **Marco amarillo eliminado**: `v.style.outline = 'none'` en el `<video>`.
-8. **Playback en wrapper iframe**: PlayerActivity carga un wrapper HTML con `<iframe src="player_url">` same-origin (`streamx-hd.com`). Esto evita las 3 capas de protección del server.
-9. **Autoplay con nueva API del player (Oct 2026)**: El server migró de `unlockSound()`/`soundUnlocked` (que desaparecieron) a **Clappr 0.8** (`autoPlay:false, mute:false, volume:100`, expone `window.player` con `play()`/`isPlaying()`). El wrapper `tryPlay()` ahora llama `win.player.play()`, como respaldo `v.play()` + unmute en el `<video>`, y reintenta hasta 60×500ms. Los JS de D-pad (TOGGLE/SEEK/FULLSCREEN) resuelven el video dentro del iframe.
-10. **Auto-update OTA (Oct 2026)**: MainActivity chequea `releases/version.txt` en GitHub al abrir; si hay versión mayor, diálogo → descarga APK → instala vía FileProvider (`REQUEST_INSTALL_PACKAGES`). El `versionCode` se auto-genera con `git rev-list --count HEAD` (versión `1.2-build<N>`). `build.gradle.kts` escribe `releases/version.txt` automáticamente (task `writeVersionFile`, finalizer de `assembleRelease`).
-11. **Eliminar "click para activar sonido" (Oct 2026)**: Al arrancar el player por autoplay sin gesto real, Chrome/WebView muestra su indicador nativo "Tap to unmute" arriba a la derecha aunque el video suene. Fix: `gestureUnlock()` en PlayerActivity dispacha `KEYCODE_DPAD_DOWN` (down/up) al WebView en 400/1400/2800ms post-`onPageFinished`. Es un gesto real de plataforma (no un `click()` sintético de JS, que Chrome ignora), con eso Chrome quita el pill.
+## Historial
+- Jul 2026: D-pad, calidad live2, refresh in-page, wrapper iframe.
+- Ago 2026: bloqueo de ads.
+- Sep 2026: dominios de respaldo. **Ese commit (`ee991e9`) dejó un error de sintaxis en el script del wrapper** que lo desactivó hasta Nov 2026.
+- Oct 2026: Clappr, OTA, versionado automático, `gestureUnlock()`.
+- Nov 2026 (1.3): arreglo del script del wrapper, `unlockSound()`, bloqueo de popups/redirecciones, teclas en `dispatchKeyEvent`, cambio de servidor ▲▼, aviso de servidor caído, destrucción del WebView, dominios dinámicos con directorio + último dominio bueno, OTA verificado, UA con versión real, `WebGuards` compartido.
+
+## Probar en emulador (WSL)
+- AVD `tv34` (Android TV 14, WebView 113) en `/root/avd`; correr emulator/adb como **root** (`wsl -u root`, el usuario `nahu` no tiene acceso a `/dev/kvm`).
+- Con ventana (WSLg): `DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir ANDROID_SDK_ROOT=... ANDROID_AVD_HOME=/root/avd emulator -avd tv34 -gpu swiftshader_indirect`. Sin ventana: agregar `-no-window -no-audio`.
+- Teclado del emulador: flechas = D-pad, Enter = OK, Esc = Atrás.
+- Los builds **debug** exponen DevTools del WebView: `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`.
 
 ## Build & Deploy
 - Build: `/home/nahu/opencode-tools/gradle-8.5/bin/gradle clean assembleRelease` (usar gradle directo, el wrapper tiene issues con JDK)
-- Sign: `zipalign -v -p -f 4 app-release-unsigned.apk aligned.apk && apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey aligned.apk`
+- Sign (con `JAVA_HOME`/`PATH` apuntando a jdk17): `zipalign -p -f 4 app-release-unsigned.apk aligned.apk && apksigner sign --ks /home/nahu/opencode-tools/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --out NahuApp.apk aligned.apk`
 - JDK 17 en `/home/nahu/opencode-tools/jdk17`, Android SDK 34 + build-tools 34.0.0 en `/home/nahu/opencode-tools/android-sdk/`
 - **Toolchain persistente** en `/home/nahu/opencode-tools` (no usar `/tmp/opencode` — se borra al reiniciar el WSL)
 - `local.properties`: `sdk.dir=/home/nahu/opencode-tools/android-sdk`
-- Debug keystore: `/home/nahu/opencode-tools/debug.keystore` (password: android)
 - APK firmado se copia a `releases/NahuApp.apk`
-- **Push al repo**: El usuario descarga desde `https://github.com/nfontan/NahuApp/blob/main/releases/NahuApp.apk` (no desde releases assets). Hay que hacer `git push` para que se actualice.
-- GitHub PAT guardado en `.github_pat` (agregado a `.gitignore`).
+- **Push al repo**: las TVs descargan `releases/NahuApp.apk` y `releases/version.txt` de `main` (raw.githubusercontent). Publicar = commit + `git push`; eso dispara el OTA en todas las TVs.
+- GitHub PAT guardado en `.github_pat` (en `.gitignore`).
 - GitHub repo: `https://github.com/nfontan/NahuApp.git`, user `nfontan`.

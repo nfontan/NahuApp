@@ -1,15 +1,26 @@
 # NahuApp
 
-Aplicación Android TV que carga **stream-xhd.com** como WebView, permitiendo ver eventos deportivos en vivo directamente desde el televisor.
+Aplicación Android TV que carga el sitio **StreamXHD** (hoy `streamxhd.sbs`) como WebView, permitiendo ver eventos deportivos en vivo directamente desde el televisor.
 
 ## Características
 
-- **WebView optimizado** — JavaScript, DOM storage, mixed content habilitados
-- **Reproducción a pantalla completa** — Al presionar "Ver aquí", el stream se abre en una Activity separada, evitando problemas con iframes embebidos
-- **Control remoto** — Navegación con D-Pad, botón Atrás para volver, doble clic en Atrás para salir
-- **Pantalla completa nativa** — Soporte para HTML5 video fullscreen vía `onShowCustomView`
+- **Reproducción a pantalla completa** — Al presionar "Ver aquí", el stream se abre en una Activity separada con autoplay y sonido
+- **Cambio de servidor** — Dentro del reproductor, ▲/▼ (o CH+/CH-) pasan a otro servidor del mismo partido
+- **Aviso de servidor caído** — Si un servidor no arranca en 20 s, la app sugiere cambiar de servidor
+- **Dominios automáticos** — Recuerda el último dominio que funcionó, lee los dominios oficiales de streamveri.xyz y prueba los de respaldo si uno cae
+- **Bloqueo de publicidad** — Bloquea scripts de anuncios, popups y redirecciones que reemplazaban el reproductor
+- **Actualización automática (OTA)** — Al abrir, avisa si hay una versión nueva y la instala
 - **Interfaz limpia** — Sin barra de título, keepScreenOn activado
-- **User-Agent Android TV** — El sitio se ve correctamente en televisores
+
+## Control remoto en el reproductor
+
+| Tecla | Acción |
+|---|---|
+| OK / Play-Pausa | Reproducir / pausar |
+| ◀ / ▶ | Retroceder / adelantar 15 s |
+| ▲ / ▼ (CH- / CH+) | Servidor anterior / siguiente |
+| Info / Menú | Ver qué servidor se está usando |
+| Atrás | Volver a la agenda |
 
 ## Requisitos
 
@@ -50,8 +61,9 @@ El APK firmado se genera en `app/build/outputs/apk/release/`.
 ├── app/
 │   ├── src/main/
 │   │   ├── java/com/streamxhd/tv/
-│   │   │   ├── MainActivity.kt      # Activity principal con WebView
-│   │   │   └── PlayerActivity.kt    # Activity de reproducción fullscreen
+│   │   │   ├── MainActivity.kt      # Agenda en WebView, dominios, OTA
+│   │   │   ├── PlayerActivity.kt    # Reproductor fullscreen y control remoto
+│   │   │   └── WebGuards.kt         # Bloqueo de ads, dominios, user agent
 │   │   ├── res/
 │   │   │   ├── drawable/            # Icono del escudo de Racing Club
 │   │   │   ├── layout/              # Layouts de las Activities
