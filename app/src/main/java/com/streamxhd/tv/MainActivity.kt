@@ -154,6 +154,16 @@ class MainActivity : AppCompatActivity() {
                 ): WebResourceResponse? {
                     val host = request?.url?.host
                     if (WebGuards.isAdHost(host)) return WebGuards.blockedResponse(TAG, host!!)
+                    // Safety net: the site's own "Ver aquí" handler plays the server in a small
+                    // muted iframe inside the agenda. INJECTED_JS normally stops it, but if that
+                    // click got through anyway, cancel the iframe and open the real player.
+                    if (request != null && !request.isForMainFrame && WebGuards.isPlayerUrl(request.url)) {
+                        val url = request.url.toString()
+                        handler.post { rescueInlinePlayer(url) }
+                        return WebResourceResponse(
+                            "text/html", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
                     return super.shouldInterceptRequest(view, request)
                 }
             }
@@ -249,20 +259,27 @@ class MainActivity : AppCompatActivity() {
     private fun onMainPageFinished(view: WebView?, url: String?) {
         if (url == null || url == "about:blank") return
         val host = Uri.parse(url).host ?: return
-        if (host in failedHosts) return
         if (!WebGuards.isSiteHost(host)) {
             // e.g. an expired domain that now redirects to a parking page
-            tryNextDomain("redirigido a $host")
+            if (host !in failedHosts) tryNextDomain("redirigido a $host")
             return
         }
         view?.evaluateJavascript(SITE_CHECK_JS) { result ->
+            val isShown = host == Uri.parse(webView.url ?: "").host
             if (result == "true") {
-                handler.removeCallbacks(loadTimeout)
-                connectionDialog?.dismiss()
-                currentHost = host
-                prefs.edit().putString(KEY_LAST_DOMAIN, host).apply()
+                // Always inject into an agenda page, whatever path led here: without it the
+                // site's own "Ver aquí" plays in a small muted iframe.
                 view.evaluateJavascript(INJECTED_JS, null)
-            } else if (host == Uri.parse(webView.url ?: "").host) {
+                if (isShown) {
+                    // Also when this host had been given up on (slow TV hit the timeout) but
+                    // ended up loading: it works, so it becomes the current domain.
+                    failedHosts.remove(host)
+                    handler.removeCallbacks(loadTimeout)
+                    connectionDialog?.dismiss()
+                    currentHost = host
+                    prefs.edit().putString(KEY_LAST_DOMAIN, host).apply()
+                }
+            } else if (isShown && host !in failedHosts) {
                 tryNextDomain("la página no es la agenda")
             }
         }
@@ -380,6 +397,36 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "playServers: JSON inválido: ${e.message}")
             }
+        }
+    }
+
+    private var lastRescueUrl: String? = null
+    private var lastRescueAt = 0L
+
+    /** Called (UI thread) when the agenda tried to load a server in its own inline iframe. */
+    private fun rescueInlinePlayer(url: String) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (url == lastRescueUrl && now - lastRescueAt < 3000) return
+        lastRescueUrl = url
+        lastRescueAt = now
+        Log.w(TAG, "Reproductor embebido de la página interceptado: $url")
+        webView.evaluateJavascript(rescueInlineJs(url)) { result ->
+            val parsed = try {
+                // evaluateJavascript returns the JSON string itself JSON-encoded
+                if (result == null || result == "null") null
+                else JSONObject(org.json.JSONTokener(result).nextValue() as String)
+            } catch (e: Exception) {
+                null
+            }
+            if (parsed == null) {
+                openPlayer(listOf(url), listOf(""), 0)
+                return@evaluateJavascript
+            }
+            val urls = parsed.getJSONArray("urls")
+            val names = parsed.optJSONArray("names")
+            val u = (0 until urls.length()).map { urls.getString(it) }
+            val n = u.indices.map { names?.optString(it, "") ?: "" }
+            openPlayer(u, n, parsed.optInt("index", 0))
         }
     }
 
@@ -512,6 +559,63 @@ class MainActivity : AppCompatActivity() {
         private const val SITE_CHECK_JS =
             "(function(){return !!(document.getElementById('content') && document.getElementById('tabs'));})()"
 
+        /**
+         * __nahuCollectServers(btn) -> {urls, names, index}: every server of the event the
+         * "Ver aquí" button belongs to (same data-target), so the player can switch with UP/DOWN.
+         */
+        private const val COLLECT_SERVERS_FN = """
+function __nahuCollectServers(btn) {
+    function serverName(b) {
+        var row = b.closest('.compact-server-row');
+        var el = row && row.querySelector('.compact-server-name span:not(.compact-server-number)');
+        return el ? el.textContent.trim() : '';
+    }
+    var url = (btn.getAttribute('data-url') || '').trim();
+    if (!url) return null;
+    var target = btn.getAttribute('data-target');
+    var all = target
+        ? Array.prototype.slice.call(document.querySelectorAll('[data-action="play"]')).filter(function(b) {
+              return b.getAttribute('data-target') === target;
+          })
+        : [btn];
+    var urls = [], names = [], index = 0;
+    all.forEach(function(b) {
+        var u = (b.getAttribute('data-url') || '').trim();
+        if (!u) return;
+        var name = serverName(b);
+        var pos = urls.indexOf(u);
+        if (pos === -1) { urls.push(u); names.push(name); pos = urls.length - 1; }
+        else if (!names[pos] && name) { names[pos] = name; }
+        if (u === url) index = pos;
+    });
+    if (urls.length === 0) { urls = [url]; names = ['']; }
+    return { urls: urls, names: names, index: index };
+}
+"""
+
+        /**
+         * Undoes the site's inline player for [url] (stops the iframe, hides the panel) and
+         * returns the event's servers as JSON, or null if no button with that URL is found.
+         */
+        private fun rescueInlineJs(url: String): String = """
+(function() {
+$COLLECT_SERVERS_FN
+    var url = ${JSONObject.quote(url)};
+    Array.prototype.slice.call(document.querySelectorAll('iframe')).forEach(function(f) {
+        if (f.src === url) {
+            f.removeAttribute('src');
+            var panel = f.closest('.show');
+            if (panel) panel.classList.remove('show');
+        }
+    });
+    var btn = Array.prototype.slice.call(document.querySelectorAll('[data-action="play"]')).find(function(b) {
+        var u = (b.getAttribute('data-url') || '').trim();
+        return u === url || (u && new URL(u, location.href).href === url);
+    });
+    return btn ? JSON.stringify(__nahuCollectServers(btn)) : null;
+})();
+"""
+
         private const val INJECTED_JS = """
 (function() {
     if (window.__nahuInjected) return;
@@ -522,38 +626,15 @@ class MainActivity : AppCompatActivity() {
     var live2Btn = document.querySelector('[data-mode="live2"]');
     if (live2Btn && !live2Btn.classList.contains('active')) live2Btn.click();
 
-    function serverName(btn) {
-        var row = btn.closest('.compact-server-row');
-        var el = row && row.querySelector('.compact-server-name span:not(.compact-server-number)');
-        return el ? el.textContent.trim() : '';
-    }
+$COLLECT_SERVERS_FN
 
     document.addEventListener('click', function(e) {
         var btn = e.target.closest('[data-action="play"]');
         if (!btn) return;
         e.preventDefault();
         e.stopPropagation();
-        var url = (btn.getAttribute('data-url') || '').trim();
-        if (!url) return;
-        // Every server of the same event, so the player can switch with UP/DOWN.
-        var target = btn.getAttribute('data-target');
-        var all = target
-            ? Array.prototype.slice.call(document.querySelectorAll('[data-action="play"]')).filter(function(b) {
-                  return b.getAttribute('data-target') === target;
-              })
-            : [btn];
-        var urls = [], names = [], index = 0;
-        all.forEach(function(b) {
-            var u = (b.getAttribute('data-url') || '').trim();
-            if (!u) return;
-            var name = serverName(b);
-            var pos = urls.indexOf(u);
-            if (pos === -1) { urls.push(u); names.push(name); pos = urls.length - 1; }
-            else if (!names[pos] && name) { names[pos] = name; }
-            if (u === url) index = pos;
-        });
-        if (urls.length === 0) { urls = [url]; names = ['']; }
-        Android.playServers(JSON.stringify({ urls: urls, names: names, index: index }));
+        var data = __nahuCollectServers(btn);
+        if (data) Android.playServers(JSON.stringify(data));
     }, true);
 
     var refreshBtn = document.createElement('div');

@@ -15,6 +15,8 @@ App Android nativa (Kotlin) que wrappea el sitio StreamXHD (hoy `streamxhd.sbs`)
     - Fuerza `playbackMode = 'live2'` y clickea el botón `[data-mode="live2"]` si la página arrancó en live1 (instalación nueva).
     - Intercepta clicks en `[data-action="play"]` y manda **todos los servidores del evento** (mismo `data-target`, nombres de `.compact-server-row .compact-server-name`) a `Android.playServers(json)`. `Android.playUrl(url)` queda por compatibilidad.
     - Botón refresh flotante (`#__refresh_btn`), `tabindex="0"` en play/`.tab`, foco inicial en el primer `.tab`.
+  - **Red de seguridad del reproductor embebido**: si igual corre el handler propio del sitio (que pone el server en un iframe chico y muteado dentro de la tarjeta), `shouldInterceptRequest` detecta el request de subframe a un player (`WebGuards.isPlayerUrl`: `live*.php` o `/channel/`), devuelve respuesta vacía, limpia ese iframe (`rescueInlineJs`) y abre `PlayerActivity` con los servidores del evento. Log: "Reproductor embebido de la página interceptado". Pasó en una TV al buscar un partido y apretar "Ver aquí" (no reproducido en el emulador).
+  - `INJECTED_JS` se inyecta en toda página que pase `SITE_CHECK_JS`, aunque su dominio haya quedado en `failedHosts` (TV lenta que superó el timeout y después cargó); en ese caso el dominio pasa a ser el actual.
   - Bloquea popups (`setSupportMultipleWindows(true)` + `onCreateWindow` → false) y navegación fuera de `streamxhd.*` (`shouldOverrideUrlLoading`).
   - OTA (ver abajo). `webView.destroy()` en `onDestroy`.
 - **PlayerActivity**: recibe `urls`, `names`, `index` (todos los servidores del evento).

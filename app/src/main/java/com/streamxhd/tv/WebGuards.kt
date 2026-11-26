@@ -25,6 +25,13 @@ object WebGuards {
 
     fun isSiteHost(host: String?): Boolean = host != null && SITE_HOST.matches(host.lowercase())
 
+    /** A server page of the site (live1.php / live2.php / channel/?id=...), i.e. what the player plays. */
+    fun isPlayerUrl(uri: Uri?): Boolean {
+        if (uri == null || !isSiteHost(uri.host)) return false
+        val path = uri.path?.lowercase() ?: return false
+        return Regex("/live\\d*\\.php$").containsMatchIn(path) || path.startsWith("/channel")
+    }
+
     fun isAdHost(host: String?): Boolean =
         host != null && AD_BLOCKED_HOSTS.any { host == it || host.endsWith(".$it") }
 
